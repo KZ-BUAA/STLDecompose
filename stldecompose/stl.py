@@ -1,9 +1,22 @@
 import numpy as np
 import pandas as pd
+from statsmodels.tools.data import _is_using_pandas
 from pandas.core.nanops import nanmean as pd_nanmean
 from statsmodels.tsa.seasonal import DecomposeResult
-from statsmodels.tsa.filters._utils import _maybe_get_pandas_wrapper_freq
+from statsmodels.tsa.filters._utils import _get_pandas_wrapper
 import statsmodels.api as sm
+
+
+def _maybe_get_pandas_wrapper_freq(X, trim=None):
+    # 来源于 statsmodels 0.10.
+    # from statsmodels.tsa.filters._utils import _maybe_get_pandas_wrapper_freq
+    if _is_using_pandas(X, None):
+        index = X.index
+        func = _get_pandas_wrapper(X)
+        freq = index.inferred_freq
+        return func, freq
+    else:
+        return lambda x : x, None
 
 
 def decompose(df, period=365, lo_frac=0.6, lo_delta=0.01):
@@ -51,10 +64,10 @@ def decompose(df, period=365, lo_frac=0.6, lo_delta=0.01):
     period = min(period, len(observed))
 
     # calc one-period seasonality, remove tiled array from detrended
-    period_averages = np.array([pd_nanmean(detrended[i::period]) for i in range(period)])
+    weights = np.array([pd_nanmean(detrended[i::period]) for i in range(period)])
     # 0-center the period avgs
-    period_averages -= np.mean(period_averages)
-    seasonal = np.tile(period_averages, len(observed) // period + 1)[:len(observed)]    
+    weights -= np.mean(weights)
+    seasonal = np.tile(weights, len(observed) // period + 1)[:len(observed)]    
     resid = detrended - seasonal
 
     # convert the arrays back to appropriate dataframes, stuff them back into 
@@ -64,7 +77,7 @@ def decompose(df, period=365, lo_frac=0.6, lo_delta=0.01):
                          trend=results[1],
                          resid=results[2], 
                          observed=results[3],
-                         period_averages=period_averages)
+                         weights=weights)
     return dr
 
 
@@ -118,24 +131,24 @@ def forecast(stl, fc_func, steps=10, seasonal=False, **fc_func_kwargs):
         max_correlation = -np.inf
         # loop over indexes=length of period avgs
         detrended_array = np.asanyarray(stl.observed - stl.trend).squeeze()
-        for i, x in enumerate(stl.period_averages):
+        for i, x in enumerate(stl.weights):
             # work slices backward from end of detrended observations
             if i == 0:
                 # slicing w/ [x:-0] doesn't work
-                detrended_slice = detrended_array[-len(stl.period_averages):]        
+                detrended_slice = detrended_array[-len(stl.weights):]        
             else:
-                detrended_slice = detrended_array[-(len(stl.period_averages) + i):-i]
+                detrended_slice = detrended_array[-(len(stl.weights) + i):-i]
             # calculate corr b/w period_avgs and detrend_slice
-            this_correlation = np.correlate(detrended_slice, stl.period_averages)[0]
+            this_correlation = np.correlate(detrended_slice, stl.weights)[0]
             if this_correlation > max_correlation:
                 # update ix and max correlation
                 max_correlation = this_correlation
                 seasonal_ix = i
         # roll seasonal signal to matching phase
-        rolled_period_averages = np.roll(stl.period_averages, -seasonal_ix)
+        rolled_weights = np.roll(stl.weights, -seasonal_ix)
         # tile as many time as needed to reach "steps", then truncate
-        tiled_averages = np.tile(rolled_period_averages, 
-                                 (steps // len(stl.period_averages) + 1))[:steps]
+        tiled_averages = np.tile(rolled_weights, 
+                                 (steps // len(stl.weights) + 1))[:steps]
         # add seasonal values to previous forecast
         forecast_array += tiled_averages                
         col_name += '+seasonal'
