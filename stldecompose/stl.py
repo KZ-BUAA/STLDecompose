@@ -8,7 +8,7 @@ import statsmodels.api as sm
 
 
 def _maybe_get_pandas_wrapper_freq(X, trim=None):
-    # 来源于 statsmodels 0.10.
+    # this function comes from statsmodels 0.10.2
     # from statsmodels.tsa.filters._utils import _maybe_get_pandas_wrapper_freq
     if _is_using_pandas(X, None):
         index = X.index
@@ -72,7 +72,8 @@ def decompose(df, period=365, lo_frac=0.6, lo_delta=0.01):
 
     # convert the arrays back to appropriate dataframes, stuff them back into 
     #  the statsmodel object
-    results = list(map(_pandas_wrapper, [seasonal, trend, resid, observed]))    
+    results = list(map(_pandas_wrapper, [seasonal, trend, resid, observed]))
+    # latest version of statsmodels changed optional aruges named weights rather than period_averages
     dr = DecomposeResult(seasonal=results[0],
                          trend=results[1],
                          resid=results[2], 
